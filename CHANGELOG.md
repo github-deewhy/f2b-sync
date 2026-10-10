@@ -12,6 +12,32 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Menu bar mode with "Sync now" and last-run status.
 - Optional `rsync` transfer mode for multiple or large files.
 
+## [2.1.0] - 2026-10-10
+
+The repository now contains the complete project: server script, dashboard and
+Mac client. **No functional changes** to any script or to the app.
+
+### Added
+- `server/f2b.sh`: the Fail2Ban report and `--json` export. It discovers every
+  active jail automatically, so it works on any Fail2Ban setup.
+- `dashboard/f2b.html`: the local dashboard. Open it in a browser and use
+  **Load JSON** to view a synced `f2b_status.json`; no web server is needed.
+- `server/f2b_api.py`: the optional standalone HTTP API with pre-configured
+  statistics (`/api/v1/bans`, `/api/v1/bans/{ip}`, `/api/v1/stats`). It is
+  independent: neither the sync client nor the dashboard uses it.
+- README: scope table, step-by-step flow (server, Mac app, local dashboard),
+  API skeleton and endpoints, a complete ordered command list and
+  troubleshooting.
+
+### Changed
+- Repository layout: `server/`, `dashboard/` and `mac/` (Mac files moved
+  unchanged into `mac/`; `build_app.sh` works from there as before).
+
+### Notes
+- `f2b_api.py` is included as provided: it reads a single jail (`ai-watchdog`
+  by default), listens on `0.0.0.0:3000` and has no authentication. The README
+  recommends an SSH tunnel and a closed firewall port.
+
 ## [2.0.0] - 2026-10-10
 
 ### Added
@@ -66,7 +92,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - The original two-step manual workflow (`ssh ... "./f2b.sh --json"` followed by
   `scp`) with the single-connection script above.
 
-[Unreleased]: https://github.com/github-deewhy/f2b-sync/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/github-deewhy/f2b-sync/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/github-deewhy/f2b-sync/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/github-deewhy/f2b-sync/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/github-deewhy/f2b-sync/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/github-deewhy/f2b-sync/releases/tag/v1.0.0
