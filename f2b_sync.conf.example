@@ -1,0 +1,12 @@
+# Copy to ~/.config/f2b_sync.conf and edit.  (plain shell syntax)
+#   mkdir -p ~/.config && cp f2b_sync.conf.example ~/.config/f2b_sync.conf
+REMOTE_USER="ubuntu"
+REMOTE_HOST="your-server.example.com"
+SSH_KEY="$HOME/.ssh/id_rsa"
+REMOTE_CMD="./f2b.sh --json >&2"          # command run in the remote home dir
+REMOTE_FILE="/home/ubuntu/f2b_status.json" # file streamed back after the command
+LOCAL_DIR="$HOME/f2b"                     # where f2b_status.json is saved
+LOCAL_NAME="f2b_status.json"
+RETRIES=3
+RETRY_DELAY=5
+LOG_FILE="$HOME/Library/Logs/f2b_sync.log"

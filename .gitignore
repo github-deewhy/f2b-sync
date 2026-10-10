@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+# Build output
+*.app/
+build_icon.iconset/
+AppIcon.icns
+applet_src.applescript
+# Runtime data / secrets - never commit
+f2b_status.json
+.f2b_status.json.tmp*
+*.log
+f2b_sync.conf
+.env
+id_rsa*
+*.pem
