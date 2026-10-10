@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (for example v2.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          VERSION="${TAG#v}"
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/            { exit }
+            found                        { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "::error::CHANGELOG.md has no section for version $VERSION"
+            exit 1
+          fi
+          cat >> release_notes.md <<'EOF'
+
+          ---
+          **Install:** unzip and drag **F2B Sync.app** to Applications. Apple Silicon (arm64) build.
+          The app is ad-hoc signed, not notarized: on first launch right-click it and choose **Open**,
+          or run `xattr -cr "/Applications/F2B Sync.app"`. Then create `~/.config/f2b_sync.conf`
+          (see the README).
+          EOF
+
+      - name: Build app
+        working-directory: mac
+        run: |
+          chmod +x build_app.sh f2b_sync.sh
+          ./build_app.sh
+
+      - name: Verify bundle
+        working-directory: mac
+        run: |
+          APP="F2B Sync.app"
+          test -x "$APP/Contents/MacOS/F2BSync"
+          test -x "$APP/Contents/Resources/f2b_sync.sh"
+          plutil -lint "$APP/Contents/Info.plist"
+
+      - name: Package
+        run: |
+          ZIP="F2B-Sync-${TAG}-macOS-arm64.zip"
+          ditto -c -k --keepParent "mac/F2B Sync.app" "$ZIP"
+          shasum -a 256 "$ZIP" > "$ZIP.sha256"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" "$ZIP" "$ZIP.sha256" \
+            --verify-tag \
+            --title "F2B Sync $TAG" \
+            --notes-file release_notes.md

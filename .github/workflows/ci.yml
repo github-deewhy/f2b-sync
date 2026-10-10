@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "LICENSE"]
+  pull_request:
+    paths-ignore: ["**.md", "LICENSE"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast checks on Linux: static analysis + a functional test of the sync engine
+  # ---------------------------------------------------------------------------
+  lint-and-test:
+    name: Lint and smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: ShellCheck
+        # SC1090: f2b_sync.sh sources the user's config file by variable path (intentional).
+        run: |
+          shellcheck -S warning -e SC1090 \
+            server/f2b.sh mac/f2b_sync.sh mac/build_app.sh mac/build_app_applescript.sh
+
+      - name: Syntax check (bash and Python)
+        run: |
+          for f in server/f2b.sh mac/*.sh; do bash -n "$f"; done
+          python3 -m py_compile server/f2b_api.py
+
+      - name: Dashboard file is present
+        run: |
+          test -s dashboard/f2b.html
+          grep -q "<title>" dashboard/f2b.html
+
+      - name: Smoke test f2b_sync.sh (fake ssh)
+        # Exercises the real script against a fake `ssh`: success, invalid JSON and an
+        # unreachable server. A failed sync must never replace the last good file.
+        run: |
+          set -euo pipefail
+          T="$(mktemp -d)"
+          mkdir -p "$T/bin" "$T/data"
+          touch "$T/key"
+
+          cat > "$T/bin/ssh" <<'EOF'
+          #!/bin/bash
+          case "${FAKE_SSH_MODE:-ok}" in
+            ok)   echo '@@STAGE connected' >&2
+                  echo '@@STAGE fetch' >&2
+                  echo '{"total_jails":1,"jails":[{"name":"sshd"}]}' ;;
+            bad)  echo 'this is not json' ;;
+            down) echo 'ssh: connect to host timed out' >&2; exit 255 ;;
+          esac
+          EOF
+          chmod +x "$T/bin/ssh"
+
+          cat > "$T/conf" <<EOF
+          SSH_KEY="$T/key"
+          LOCAL_DIR="$T/data"
+          LOG_FILE="$T/sync.log"
+          RETRIES=2
+          RETRY_DELAY=1
+          EOF
+
+          export PATH="$T/bin:$PATH" F2B_CONF="$T/conf"
+          run() { FAKE_SSH_MODE="$1" bash mac/f2b_sync.sh --quiet --progress || true; }
+
+          bash mac/f2b_sync.sh --help > /dev/null
+
+          echo "--- success"
+          out="$(run ok)"; echo "$out"
+          grep -q '^@@DONE 0 ' <<<"$out"
+          for pct in 35 70 85 95; do grep -q "^@@PROGRESS $pct " <<<"$out"; done
+          jq -e '.jails[0].name == "sshd"' "$T/data/f2b_status.json" > /dev/null
+          cp "$T/data/f2b_status.json" "$T/good.json"
+
+          echo "--- invalid JSON keeps the last good file"
+          out="$(run bad)"; echo "$out"
+          grep -q '^@@DONE 1 ' <<<"$out"
+          cmp "$T/good.json" "$T/data/f2b_status.json"
+
+          echo "--- unreachable server keeps the last good file"
+          out="$(run down)"; echo "$out"
+          grep -q '^@@DONE 1 ' <<<"$out"
+          cmp "$T/good.json" "$T/data/f2b_status.json"
+
+          echo "--- no temp files left behind"
+          test "$(ls -A "$T/data")" = "f2b_status.json"
+
+  # ---------------------------------------------------------------------------
+  # macOS: compile the Swift app exactly as users will
+  # ---------------------------------------------------------------------------
+  build-app:
+    name: Build F2B Sync.app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcode-select -p
+          swiftc --version
+
+      - name: Build app
+        working-directory: mac
+        run: |
+          chmod +x build_app.sh f2b_sync.sh
+          ./build_app.sh
+
+      - name: Verify bundle
+        working-directory: mac
+        run: |
+          APP="F2B Sync.app"
+          test -x "$APP/Contents/MacOS/F2BSync"
+          test -x "$APP/Contents/Resources/f2b_sync.sh"
+          test -f "$APP/Contents/Resources/AppIcon.icns"
+          plutil -lint "$APP/Contents/Info.plist"
+          file "$APP/Contents/MacOS/F2BSync"
+
+      - name: Check ad-hoc signature (informational)
+        continue-on-error: true
+        working-directory: mac
+        run: codesign --verify --deep "F2B Sync.app" && echo "signature OK"
+
+      - name: Package
+        run: ditto -c -k --keepParent "mac/F2B Sync.app" F2B-Sync-macOS.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v6
+        with:
+          name: F2B-Sync-macOS
+          path: F2B-Sync-macOS.zip
+          retention-days: 14
+
+      - name: Build AppleScript fallback (non-blocking)
+        # Runs last because it replaces the app bundle created above.
+        continue-on-error: true
+        working-directory: mac
+        run: |
+          chmod +x build_app_applescript.sh
+          ./build_app_applescript.sh
