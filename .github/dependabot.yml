@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Keeps the actions used in .github/workflows (checkout, upload-artifact, ...) up to date.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+    groups:
+      # One combined pull request per week instead of one per action.
+      github-actions:
+        patterns: ["*"]
