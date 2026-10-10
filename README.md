@@ -16,15 +16,13 @@ then explore it in a local dashboard. No web server to build or run.
 | `server/f2b.sh` | Ubuntu server | Reports **every** jail; `--json` exports it for machines | Yes |
 | `mac/` (`f2b_sync.sh` and **F2B Sync.app**) | Mac | Pulls that JSON over one SSH connection | Yes |
 | `dashboard/f2b.html` | Mac browser | Opens the JSON locally, no server | Yes |
-| `server/f2b_api.py` | Ubuntu server | Standalone HTTP API with ready-made statistics | **No** (optional, independent) |
 
-The main flow needs no web server anywhere. `f2b_api.py` is a separate extra: neither the sync client nor the dashboard uses it.
+The main flow needs no web server anywhere. Section 4 shows optional ways to use `f2b.sh` directly on the server.
 
 ```mermaid
 flowchart LR
     A["f2b.sh --json<br>(Ubuntu)"] -- "SSH, via F2B Sync.app" --> B[("f2b_status.json<br>(Mac)")]
     B -- "Load JSON" --> C["f2b.html<br>(browser)"]
-    A -. "optional" .-> D["f2b_api.py<br>HTTP API"]
 ```
 
 ---
@@ -39,7 +37,7 @@ ssh -t ubuntu@your-server.example.com 'chmod +x ~/f2b.sh && ./f2b.sh'          #
 ssh    ubuntu@your-server.example.com './f2b.sh --json'                         # writes ~/f2b_status.json
 ```
 
-**It works on any Fail2Ban setup, with no configuration.** `f2b.sh` asks Fail2Ban for its jail list (`fail2ban-client status`) and loops over every jail it finds: `sshd`, Nginx jails, `recidive`, custom jails such as `ai-watchdog`. Add or remove a jail and the report follows automatically. For each jail the JSON contains:
+**It works on any Fail2Ban setup, with no configuration.** `f2b.sh` asks Fail2Ban for its jail list (`fail2ban-client status`) and loops over every jail it finds, whatever your Fail2Ban is configured with (SSH, web server jails, `recidive`, your own jails). Add or remove a jail and the report follows automatically. For each jail the JSON contains:
 
 - status (`active` if anything is currently banned, otherwise `idle`)
 - currently and total banned, currently and total failed
@@ -88,82 +86,83 @@ Then click **📁 Load JSON** and choose `f2b_status.json`. In the macOS file di
 
 Daily routine: run **F2B Sync.app**, then click **📁 Load JSON** again in the dashboard to show the new data.
 
-> A page opened by double-click (`file://`) cannot auto-read files from disk, and browsers block it. So the dashboard starts empty and the **🔄 Sync** button reports an error: that is expected. **Load JSON** always works.
+> A page opened by double-click (`file://`) cannot auto-read files from disk, and browsers block it. So the dashboard starts empty and the **🔄 Sync** button reports an error: that is expected. **Load JSON** always works. (To load it automatically, serve the dashboard over HTTP: see section 4.)
 
 ---
 
-## 4. Optional: the HTTP API (`f2b_api.py`)
+## 4. On the server: run it, schedule it, or serve it
 
-Want live data over HTTP instead of a JSON file? `f2b_api.py` is a ready-made server in a **single file using only the Python 3 standard library**: no pip, no framework. This is its skeleton (abridged from the real file):
+`f2b.sh` is useful on its own. These options are all independent of the Mac client.
 
-```python
-#!/usr/bin/env python3
-import os, sys, re, json, subprocess, logging
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
-
-# --- configuration: edit for your server -----------------------------------
-JAIL_NAME         = "ai-watchdog"
-WATCHDOG_LOG_PATH = "/var/log/ai-watchdog.log"
-NGINX_ACCESS_LOG  = "/var/log/nginx/access.log"
-NGINX_ERROR_LOG   = "/var/log/nginx/error.log"
-HOST, PORT        = "0.0.0.0", 3000
-
-ATTACK_CATEGORIES = { "WordPress / CMS Probing": [...], "SQL Injection (SQLi)": [...], ... }
-
-def ensure_root():                    # re-executes itself through sudo
-    if os.geteuid() != 0:
-        os.execvp("sudo", ["sudo", sys.executable] + sys.argv)
-
-def get_banned_ips_directly(): ...    # fail2ban-client status <jail>  + country
-def get_ai_context_from_log(ip): ...  # AI decision / error rate from the watchdog log
-def get_nginx_payloads(ip): ...       # up to 50 matching Nginx log lines
-def classify_attacks(lines): ...      # labels the attack type(s)
-def build_enriched_bans(): ...        # combines all of the above, per banned IP
-
-class APIHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        path = urlparse(self.path).path
-        if   path == "/api/v1/bans":           ...   # every banned IP, enriched
-        elif path.startswith("/api/v1/bans/"): ...   # one IP
-        elif path == "/api/v1/stats":          ...   # ready-made statistics
-        elif path == "/":                      ...   # health / version
-        else:                                  ...   # 404
-    def send_json_response(self, data, status=200): ...
-
-if __name__ == "__main__":
-    ensure_root()
-    HTTPServer((HOST, PORT), APIHandler).serve_forever()
-```
-
-Start it:
+### Run it directly: a clear report in the terminal
 
 ```bash
-scp server/f2b_api.py ubuntu@your-server.example.com:~/
-ssh -t ubuntu@your-server.example.com 'python3 f2b_api.py'     # keep it running (tmux/screen/systemd for permanence)
-
-# from the Mac, through an SSH tunnel (recommended)
-ssh -N -L 3000:localhost:3000 ubuntu@your-server.example.com &
-curl -s http://localhost:3000/api/v1/stats
+./f2b.sh
 ```
 
-**Statistics come pre-configured.** `/api/v1/stats` returns, without any setup:
+Colour-coded when run in a terminal (it re-runs itself with `sudo` if needed). Example, abridged:
 
-- `total_active_bans`
-- `attacks_by_type`, using 7 built-in categories: WordPress/CMS probing, sensitive config/dotfile exposure, path traversal (LFI), remote code execution, SQL injection, SSRF/cloud metadata, known scanners/bots
-- `attacks_by_country`
-- `ai_decisions`
-- `top_adversaries`: the 10 IPs with the most captured events
+```text
++================================================================================================+
+| FAIL2BAN - FULL REPORT                                                                         |
+| 2026-10-10 22:13:20 UTC  |  4 jails                                                            |
++================================================================================================+
 
-| Endpoint | Returns |
-|---|---|
-| `GET /api/v1/bans` | all banned IPs with AI decision, error rate, attack types, sample payloads |
-| `GET /api/v1/bans/{ip}` | one IP |
-| `GET /api/v1/stats` | the statistics above |
+>> OVERVIEW
+------------------------------------------------------------------------------------------------
+  JAIL                       BANNED    TOTAL    FAILED   TOTFAIL   STATUS
+  ............................................................................
+  nginx-botsearch                 0        4         0        12   + idle
+  nginx-http-auth                 0        0         0         0   + idle
+  nginx-limit-req                 0        2         0        31   + idle
+  sshd                            2       18         1       240   * active
+  ----------------------------------------------------------------------------
+  TOTAL (4)                       2       24         1       283
 
-**Know before you run it:**
-- **Scope:** unlike `f2b.sh`, the API reads **one jail** (`JAIL_NAME`, default `ai-watchdog`) and expects the AI-Watchdog log and Nginx logs at the paths above. For another jail, change the constants at the top. Without the watchdog log, `ai_decision` shows `UNKNOWN`.
-- **Security:** it listens on `0.0.0.0:3000` with **no authentication** and exposes attacker IPs and raw log lines. Keep port 3000 closed in your firewall or cloud security rules and use the SSH tunnel above. For a tighter default, set `HOST = "127.0.0.1"` (the tunnel still works).
+  ...
+
+  +-- sshd
+  | Filter
+  |   Currently failed:  1
+  |   Total failed:      240
+  | Actions
+  |   Currently banned:  2
+  |   Total banned:      18
+  |   Banned IPs:        2
+  |     * 203.0.113.45       DE
+  |     * 198.51.100.7       US
+  +--
+```
+
+### Schedule it with cron: keep the JSON fresh
+
+Add this to root's crontab (`sudo crontab -e`), so `sudo` is never involved. `--json` accepts an output path:
+
+```cron
+*/15 * * * * /home/ubuntu/f2b.sh --json /srv/f2b/f2b_status.json >/dev/null 2>&1
+```
+
+Create the folder first (`sudo mkdir -p /srv/f2b`) and adjust the schedule to taste.
+
+### Serve it over HTTP: the dashboard straight from the server
+
+Put the dashboard next to the JSON and serve that folder with Python's built-in web server (no installation needed):
+
+```bash
+# from your computer: copy the dashboard to the server
+scp dashboard/f2b.html ubuntu@your-server.example.com:~/
+ssh ubuntu@your-server.example.com 'sudo mkdir -p /srv/f2b && sudo mv ~/f2b.html /srv/f2b/'
+
+# on the server: serve the folder (keep it running with tmux, screen or a systemd service)
+cd /srv/f2b && python3 -m http.server 8080 --bind 127.0.0.1
+
+# from your computer: open a tunnel, then browse to http://localhost:8080/f2b.html
+ssh -N -L 8080:localhost:8080 ubuntu@your-server.example.com
+```
+
+Served over HTTP, the dashboard loads `f2b_status.json` automatically and its **Sync** button simply reloads it, so combined with the cron job above it always shows recent data.
+
+> The report lists banned IP addresses and Python's built-in server has no login or HTTPS. Keep it bound to `127.0.0.1` and reach it through the SSH tunnel, or put a proper web server with authentication in front of it. Do not expose it publicly.
 
 ---
 
@@ -187,11 +186,10 @@ nano ~/.config/f2b_sync.conf                    # REMOTE_HOST, REMOTE_USER, SSH_
 open ~/Applications/"F2B Sync.app"              # sync (or: mac/f2b_sync.sh)
 open dashboard/f2b.html                         # then click "Load JSON" → ~/f2b/f2b_status.json
 
-# ── Optional API ───────────────────────────────────────────────────────────
-scp server/f2b_api.py ubuntu@your-server.example.com:~/
-ssh -t ubuntu@your-server.example.com 'python3 f2b_api.py'
-ssh -N -L 3000:localhost:3000 ubuntu@your-server.example.com &
-curl -s http://localhost:3000/api/v1/stats
+# ── Optional, on the server ────────────────────────────────────────────────
+ssh -t ubuntu@your-server.example.com './f2b.sh'          # readable report
+sudo crontab -e                                           # on the server, then add:
+#   */15 * * * * /home/ubuntu/f2b.sh --json /srv/f2b/f2b_status.json >/dev/null 2>&1
 ```
 
 ---
@@ -203,6 +201,7 @@ curl -s http://localhost:3000/api/v1/stats
 | Works in Terminal, fails in the app | Your key has a passphrase: `ssh-add --apple-use-keychain ~/.ssh/id_rsa`, and set `UseKeychain yes` / `AddKeysToAgent yes` in `~/.ssh/config`. |
 | Sync fails right away | Run the passwordless-sudo check above. Connect once manually (`ssh user@host`) to accept the host key. |
 | "invalid JSON received" | The remote script printed extra text on stdout; its messages must go to stderr. |
+| Cron job does not update the file | Check `sudo crontab -l`, then run the same command by hand and read its output. |
 | Countries show `--` | Install `geoip-bin` and `geoip-database` on the server. |
 | Dashboard is empty / Sync button errors | Expected when opened by double-click. Use **Load JSON**. |
 | Can't write to the destination folder | Allow file access in System Settings → Privacy & Security, or change `LOCAL_DIR`. |
@@ -216,8 +215,7 @@ Log file: `~/Library/Logs/f2b_sync.log`
 ```
 f2b-sync/
 ├── server/
-│   ├── f2b.sh            # report + JSON export (all jails)
-│   └── f2b_api.py        # optional HTTP API
+│   └── f2b.sh            # report + JSON export (all jails)
 ├── dashboard/
 │   └── f2b.html          # local dashboard (single file)
 ├── mac/

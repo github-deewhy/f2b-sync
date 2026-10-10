@@ -31,10 +31,9 @@ jobs:
           shellcheck -S warning -e SC1090 \
             server/f2b.sh mac/f2b_sync.sh mac/build_app.sh mac/build_app_applescript.sh
 
-      - name: Syntax check (bash and Python)
+      - name: Syntax check (bash)
         run: |
           for f in server/f2b.sh mac/*.sh; do bash -n "$f"; done
-          python3 -m py_compile server/f2b_api.py
 
       - name: Dashboard file is present
         run: |

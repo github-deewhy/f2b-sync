@@ -22,21 +22,13 @@ Mac client. **No functional changes** to any script or to the app.
   active jail automatically, so it works on any Fail2Ban setup.
 - `dashboard/f2b.html`: the local dashboard. Open it in a browser and use
   **Load JSON** to view a synced `f2b_status.json`; no web server is needed.
-- `server/f2b_api.py`: the optional standalone HTTP API with pre-configured
-  statistics (`/api/v1/bans`, `/api/v1/bans/{ip}`, `/api/v1/stats`). It is
-  independent: neither the sync client nor the dashboard uses it.
 - README: scope table, step-by-step flow (server, Mac app, local dashboard),
-  API skeleton and endpoints, a complete ordered command list and
-  troubleshooting.
+  server-side options (direct report, cron, HTTP), a complete ordered command
+  list and troubleshooting.
 
 ### Changed
 - Repository layout: `server/`, `dashboard/` and `mac/` (Mac files moved
   unchanged into `mac/`; `build_app.sh` works from there as before).
-
-### Notes
-- `f2b_api.py` is included as provided: it reads a single jail (`ai-watchdog`
-  by default), listens on `0.0.0.0:3000` and has no authentication. The README
-  recommends an SSH tunnel and a closed firewall port.
 
 ## [2.0.0] - 2026-10-10
 
