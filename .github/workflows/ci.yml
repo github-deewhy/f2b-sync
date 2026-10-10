@@ -23,7 +23,7 @@ jobs:
     name: Lint and smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: ShellCheck
         # SC1090: f2b_sync.sh sources the user's config file by variable path (intentional).
@@ -102,7 +102,7 @@ jobs:
     name: Build F2B Sync.app
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Toolchain
         run: |
@@ -135,7 +135,7 @@ jobs:
         run: ditto -c -k --keepParent "mac/F2B Sync.app" F2B-Sync-macOS.zip
 
       - name: Upload app
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: F2B-Sync-macOS
           path: F2B-Sync-macOS.zip
